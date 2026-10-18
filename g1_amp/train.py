@@ -25,6 +25,7 @@ from .env import EnvConfig, G1Env
 from .motion import MotionLibrary, JOINT_NAMES
 from .prepare import ROOT, MOTION_DIR
 from .tracking import RunTracker
+from .evaluation import record_video
 
 
 def make_networks(observation_size):
@@ -72,7 +73,15 @@ def main():
     parser.add_argument("--wandb-name")
     parser.add_argument("--wandb-group")
     parser.add_argument("--wandb-mode", choices=("online", "offline", "disabled"), default="online")
+    parser.add_argument("--video-every", type=int, default=500, help="Record at startup, each N updates, and at finish; 0 disables")
+    parser.add_argument("--video-steps", type=int, default=300)
+    parser.add_argument("--video-fps", type=int, choices=(10, 25, 50), default=25)
+    parser.add_argument("--video-velocity", type=float, default=0.7)
+    parser.add_argument("--video-seed", type=int, default=123)
+    parser.add_argument("--video-timeout", type=int, default=180)
     args = parser.parse_args()
+    if args.video_every < 0 or args.video_steps < 1 or args.video_timeout < 1:
+        parser.error("video-every must be nonnegative and video steps/timeout positive")
     if args.num_envs % args.minibatches or min(args.iterations, args.horizon, args.epochs,
             args.minibatches, args.disc_updates, args.disc_batch_size, args.checkpoint_every, args.log_every) < 1:
         parser.error("Use positive counts and num-envs divisible by minibatches")
@@ -212,8 +221,17 @@ def main():
             if iteration % args.log_every == 0 or iteration in (start + 1, start + args.iterations) or stop_requested:
                 print(json.dumps(report), flush=True)
                 tracker.log(report)
-            if stop_requested or iteration % args.checkpoint_every == 0 or iteration == start + args.iterations:
+            record = args.video_every > 0 and not stop_requested and (
+                iteration == start + 1 or iteration % args.video_every == 0 or iteration == start + args.iterations)
+            if record or stop_requested or iteration % args.checkpoint_every == 0 or iteration == start + args.iterations:
                 save(iteration)
+            if record:
+                print(f"Recording evaluation video at update {iteration}", flush=True)
+                video, evaluation = record_video(output / "checkpoint.msgpack", args.motions, output, iteration,
+                    device=args.device, steps=args.video_steps, fps=args.video_fps,
+                    velocity=args.video_velocity, seed=args.video_seed, timeout=args.video_timeout)
+                tracker.video(video, evaluation, iteration, report["env_steps"], args.video_fps)
+                print(f"Logged evaluation video {video}", flush=True)
             if stop_requested:
                 break
     except BaseException:

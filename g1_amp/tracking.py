@@ -39,5 +39,16 @@ class RunTracker:
         artifact.add_file(str(self.output / "checkpoint.json"), name="checkpoint.json")
         self.run.log_artifact(artifact, aliases=["latest", f"iteration-{iteration}"])
 
+    def video(self, path, metrics, iteration, env_steps, fps):
+        values = {"env_steps": env_steps, "iteration": iteration,
+                  "eval/video": wandb.Video(str(path), format="mp4",
+                       caption=f"Update {iteration}; standing start; command {metrics['command_velocity']} m/s; seed {metrics['seed']}; {fps} fps; resets after falls"),
+                  "eval/task_reward": metrics["mean_task_reward"], "eval/falls": metrics["falls"],
+                  "eval/steps": metrics["steps"]}
+        lengths = metrics["completed_episode_lengths"]
+        if lengths:
+            values["eval/episode_length"] = sum(lengths) / len(lengths)
+        self.run.log(values)
+
     def finish(self, exit_code=0):
         self.run.finish(exit_code=exit_code)

@@ -23,7 +23,8 @@ run_dir="$G1_AMP_WORKDIR/runs/slurm_${SLURM_ARRAY_JOB_ID:-$SLURM_JOB_ID}_seed_$s
 args=(--num-envs "${NUM_ENVS:-64}" --iterations "${ITERATIONS:-10000}"
       --seed "$seed" --output "$run_dir" --wandb-mode online
       --wandb-project "${WANDB_PROJECT:-humanoid-locomotion-newton}"
-      --wandb-group "${WANDB_RUN_GROUP:-atlantis}" --checkpoint-every 50)
+      --wandb-group "${WANDB_RUN_GROUP:-atlantis}" --checkpoint-every 50
+      --video-every "${VIDEO_EVERY:-500}" --video-steps "${VIDEO_STEPS:-300}")
 if [[ -f "$run_dir/checkpoint.msgpack" ]]; then
     args+=(--resume "$run_dir/checkpoint.msgpack")
 fi

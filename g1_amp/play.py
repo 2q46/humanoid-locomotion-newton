@@ -28,6 +28,8 @@ def main():
     p.add_argument("--viewer", action="store_true")
     p.add_argument("--video", type=Path)
     p.add_argument("--trajectory", type=Path)
+    p.add_argument("--metrics-json", type=Path)
+    p.add_argument("--video-fps", type=int, choices=(10, 25, 50), default=25)
     p.add_argument("--reference-init", action="store_true", help="Start from a reference state instead of standing")
     p.add_argument("--velocity", type=float, default=0.7)
     p.add_argument("--seed", type=int, default=123)
@@ -65,7 +67,7 @@ def main():
         camera = mujoco.MjvCamera()
         camera.distance, camera.azimuth, camera.elevation = 3.0, 135, -15
         args.video.parent.mkdir(parents=True, exist_ok=True)
-        writer = imageio.get_writer(str(args.video), fps=50)
+        writer = imageio.get_writer(str(args.video), fps=args.video_fps)
     poses, rewards, fall_count, lengths = [], [], 0, []
     try:
         for step in range(args.steps):
@@ -81,7 +83,7 @@ def main():
                 viewer.begin_frame(step * 0.02)
                 viewer.log_state(env.state)
                 viewer.end_frame()
-            if writer:
+            if writer and step % (50 // args.video_fps) == 0:
                 render_data.qpos[:3] = q[0, :3]
                 render_data.qpos[3:7] = q[0, [6, 3, 4, 5]]
                 render_data.qpos[render_model.jnt_qposadr[render_joint_ids]] = q[0, 7:]
@@ -101,8 +103,15 @@ def main():
         args.trajectory.parent.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(args.trajectory, q=np.asarray(poses), dt=np.float32(0.02),
                             joint_names=np.asarray(JOINT_NAMES))
-    print(json.dumps({"steps": len(rewards), "mean_task_reward": float(np.mean(rewards)),
-                      "falls": fall_count, "completed_episode_lengths": lengths}, indent=2))
+    report = {"steps": len(rewards), "mean_task_reward": float(np.mean(rewards)),
+              "falls": fall_count, "completed_episode_lengths": lengths,
+              "checkpoint_iteration": int(saved["iteration"]),
+              "command_velocity": args.velocity, "seed": args.seed,
+              "initialization": "reference" if args.reference_init else "standing"}
+    if args.metrics_json:
+        args.metrics_json.parent.mkdir(parents=True, exist_ok=True)
+        args.metrics_json.write_text(json.dumps(report, indent=2) + "\n")
+    print(json.dumps(report, indent=2))
 
 
 if __name__ == "__main__":

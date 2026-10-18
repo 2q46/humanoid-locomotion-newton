@@ -31,3 +31,5 @@ squeue -u i1agrawal
 Override the account using sbatch -A ACCOUNT. For independent seeds use an array, for example sbatch --array=0-3%2 cluster/train.sbatch, which allows two simultaneous jobs. Adjust exported NUM_ENVS and ITERATIONS. Start with one GPU and measure throughput before scaling.
 
 W&B receives metrics and versioned checkpoint artifacts. Outputs persist wandb_run.json for resuming the same W&B run. Slurm sends USR1 two minutes before timeout; the learner finishes its update and saves. Requeue restarts episodes and replay while restoring the learner. Iterations are additional updates, including after restart. A hard node failure recovers the last periodic checkpoint.
+
+Periodic W&B videos are enabled: six seconds at startup, every 500 updates, and at finish. Override exported VIDEO_EVERY and VIDEO_STEPS when submitting. Captions identify the checkpoint, command, seed, and reset behavior; eval/falls and eval/task_reward accompany each clip. Headless NVIDIA EGL rendering must work in the allocation.
