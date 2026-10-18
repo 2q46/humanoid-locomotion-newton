@@ -12,7 +12,7 @@ from .prepare import MODEL_DIR, ROOT
 
 @dataclass
 class EnvConfig:
-    num_envs: int = 64
+    num_envs: int = 1024
     device: str = "cuda:0"
     substeps: int = 4
     episode_length: int = 1000

@@ -20,11 +20,12 @@ export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
 python_bin="${G1_AMP_PYTHON:-$SLURM_SUBMIT_DIR/.venv/bin/python}"
 seed="${SLURM_ARRAY_TASK_ID:-0}"
 run_dir="$G1_AMP_WORKDIR/runs/slurm_${SLURM_ARRAY_JOB_ID:-$SLURM_JOB_ID}_seed_$seed"
-args=(--num-envs "${NUM_ENVS:-64}" --iterations "${ITERATIONS:-10000}"
+args=(--num-envs "${NUM_ENVS:-1024}" --iterations "${ITERATIONS:-10000}"
       --seed "$seed" --output "$run_dir" --wandb-mode online
       --wandb-project "${WANDB_PROJECT:-humanoid-locomotion-newton}"
       --wandb-group "${WANDB_RUN_GROUP:-atlantis}" --checkpoint-every 50
-      --video-every "${VIDEO_EVERY:-500}" --video-steps "${VIDEO_STEPS:-300}")
+      --video-every "${VIDEO_EVERY:-500}" --video-steps "${VIDEO_STEPS:-300}"
+      --video-envs "${VIDEO_ENVS:-32}")
 if [[ -f "$run_dir/checkpoint.msgpack" ]]; then
     args+=(--resume "$run_dir/checkpoint.msgpack")
 fi

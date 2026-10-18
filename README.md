@@ -40,17 +40,17 @@ The dataset card identifies LAFAN1 motion content as CC BY-NC-ND 4.0 and notes t
 ## Train
 
 ```bash
-.venv/bin/python -m g1_amp.train --num-envs 64 --iterations 10000 --output runs/my_g1
+.venv/bin/python -m g1_amp.train --num-envs 1024 --iterations 10000 --output runs/my_g1
 ```
 
-At 64 environments and a 24-step horizon, 10,000 iterations collect 15.36 million transitions. This is a starting recipe; gait quality requires evaluation and tuning. Short runs verify the pipeline and do not establish stable walking.
+At 1,024 environments and a 24-step horizon, 10,000 iterations collect 245.76 million transitions. A cluster benchmark measured approximately 21,500 transitions/second at 1,024 environments versus about 3,700 at 64. This is a starting recipe; gait quality requires evaluation and tuning. Short runs verify the pipeline and do not establish stable walking.
 
 W&B online logging is enabled by default. Authenticate once with wandb login (or set WANDB_API_KEY securely) before training. Use --wandb-project, --wandb-entity, --wandb-name, and --wandb-group to organize runs. Metrics use environment transitions as the chart axis. Checkpoints and configuration are uploaded as versioned model artifacts. The local wandb_run.json preserves the run ID on resume. For isolated tests use --wandb-mode offline; disabled is available for debugging.
 
 Training saves config.json, per-update metrics.jsonl, and an atomic checkpoint.msgpack containing both networks, both optimizers, discriminator feature statistics, learner RNG, and iteration. Ctrl-C or SIGTERM finishes the current update and saves a checkpoint.
 
 ```bash
-.venv/bin/python -m g1_amp.train --num-envs 64 --iterations 1000 --resume runs/my_g1/checkpoint.msgpack --output runs/my_g1
+.venv/bin/python -m g1_amp.train --num-envs 1024 --iterations 1000 --resume runs/my_g1/checkpoint.msgpack --output runs/my_g1
 ```
 
 Iterations are additional updates when resuming. Resume restores the learner and starts fresh simulation episodes and replay; simulation continuation is not bit-exact. Keep the same motions, horizon, environment count, and optimizer settings for comparable learning curves. Use a new output directory for a new run.
@@ -89,4 +89,4 @@ The trainer currently uses one simulation GPU per process. A 10 × RTX 2080 Ti c
 
 Atlantis access, validated GPU resources, W&B setup, and Slurm launch scripts are documented in [cluster/README.md](cluster/README.md).
 
-Training records deterministic six-second standing-start evaluation clips at startup, every 500 updates, and at the end. Videos appear under eval/video in W&B, with falls and task reward; MP4 files and evaluation JSON stay under the run’s videos/ directory. The command is fixed at 0.7 m/s with seed 123, and falls reset the evaluation episode. Rendering uses a separate process and does not alter learner episodes or RNG. Configure --video-every, --video-steps, --video-fps, --video-velocity, and --video-seed; --video-every 0 disables recording. A render failure stops training after saving the checkpoint and leaves an evaluation log for diagnosis.
+Training records 32 distinct six-second evaluation videos at startup, every 500 updates, and at the end. W&B's eval/rollouts table contains every clip, seed, initialization, fall count, and reward; eval/video is only a preview. Half start standing with reproducible 0.02-radian joint perturbations, and half use independently sampled reference states. All use the fixed 0.7 m/s command by default. Batched Newton physics is followed by sequential encoding with one encoder at a time. Videos and metrics remain in videos/iteration-N/ under the run directory. Configure --video-envs, --video-every, --video-steps, --video-fps, --video-velocity, and --video-seed. --video-every 0 disables recording. Evaluation does not alter learner state or RNG. A rendering failure saves the checkpoint and leaves an evaluation log before stopping.

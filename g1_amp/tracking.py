@@ -39,16 +39,23 @@ class RunTracker:
         artifact.add_file(str(self.output / "checkpoint.json"), name="checkpoint.json")
         self.run.log_artifact(artifact, aliases=["latest", f"iteration-{iteration}"])
 
-    def video(self, path, metrics, iteration, env_steps, fps):
-        values = {"env_steps": env_steps, "iteration": iteration,
-                  "eval/video": wandb.Video(str(path), format="mp4",
-                       caption=f"Update {iteration}; standing start; command {metrics['command_velocity']} m/s; seed {metrics['seed']}; {fps} fps; resets after falls"),
-                  "eval/task_reward": metrics["mean_task_reward"], "eval/falls": metrics["falls"],
-                  "eval/steps": metrics["steps"]}
-        lengths = metrics["completed_episode_lengths"]
-        if lengths:
-            values["eval/episode_length"] = sum(lengths) / len(lengths)
-        self.run.log(values)
+    def videos(self, directory, metrics, iteration, env_steps):
+        rows = metrics["rollouts"]
+        table = wandb.Table(columns=["rollout", "seed", "initialization", "command_mps",
+                                     "falls", "mean_task_reward", "video"])
+        for row in rows:
+            caption = (f"Update {iteration}; rollout {row['index']}; {row['initialization']}; "
+                       f"command {row['command_velocity']} m/s; seed {row['seed']}; resets after falls")
+            table.add_data(row["index"], row["seed"], row["initialization"], row["command_velocity"],
+                           row["falls"], row["mean_task_reward"],
+                           wandb.Video(str(directory / row["video"]), format="mp4", caption=caption))
+        self.run.log({"env_steps": env_steps, "iteration": iteration, "eval/rollouts": table,
+            "eval/video_count": len(rows),
+            "eval/task_reward": sum(row["mean_task_reward"] for row in rows) / len(rows),
+            "eval/falls": sum(row["falls"] for row in rows) / len(rows),
+            "eval/total_falls": sum(row["falls"] for row in rows),
+            "eval/video": wandb.Video(str(directory / rows[0]["video"]), format="mp4",
+                caption=f"Preview 1 of {len(rows)}; all clips and seeds are in eval/rollouts")})
 
     def finish(self, exit_code=0):
         self.run.finish(exit_code=exit_code)

@@ -25,7 +25,7 @@ from .env import EnvConfig, G1Env
 from .motion import MotionLibrary, JOINT_NAMES
 from .prepare import ROOT, MOTION_DIR
 from .tracking import RunTracker
-from .evaluation import record_video
+from .evaluation import record_videos
 
 
 def make_networks(observation_size):
@@ -49,7 +49,7 @@ def make_sampler(net):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--num-envs", type=int, default=64)
+    parser.add_argument("--num-envs", type=int, default=1024)
     parser.add_argument("--iterations", type=int, default=10000, help="Additional rollout/update iterations")
     parser.add_argument("--horizon", type=int, default=24)
     parser.add_argument("--epochs", type=int, default=4)
@@ -78,10 +78,11 @@ def main():
     parser.add_argument("--video-fps", type=int, choices=(10, 25, 50), default=25)
     parser.add_argument("--video-velocity", type=float, default=0.7)
     parser.add_argument("--video-seed", type=int, default=123)
-    parser.add_argument("--video-timeout", type=int, default=180)
+    parser.add_argument("--video-timeout", type=int, default=600)
+    parser.add_argument("--video-envs", type=int, default=32)
     args = parser.parse_args()
-    if args.video_every < 0 or args.video_steps < 1 or args.video_timeout < 1:
-        parser.error("video-every must be nonnegative and video steps/timeout positive")
+    if args.video_every < 0 or args.video_steps < 1 or args.video_timeout < 1 or args.video_envs < 1:
+        parser.error("video-every must be nonnegative and video steps/timeout/environments positive")
     if args.num_envs % args.minibatches or min(args.iterations, args.horizon, args.epochs,
             args.minibatches, args.disc_updates, args.disc_batch_size, args.checkpoint_every, args.log_every) < 1:
         parser.error("Use positive counts and num-envs divisible by minibatches")
@@ -228,11 +229,11 @@ def main():
                 save(iteration)
             if record:
                 print(f"Recording evaluation video at update {iteration}", flush=True)
-                video, evaluation = record_video(output / "checkpoint.msgpack", args.motions, output, iteration,
+                video_dir, evaluation = record_videos(output / "checkpoint.msgpack", args.motions, output, iteration,
                     device=args.device, steps=args.video_steps, fps=args.video_fps,
-                    velocity=args.video_velocity, seed=args.video_seed, timeout=args.video_timeout)
-                tracker.video(video, evaluation, iteration, report["env_steps"], args.video_fps)
-                print(f"Logged evaluation video {video}", flush=True)
+                    velocity=args.video_velocity, seed=args.video_seed, num_envs=args.video_envs, timeout=args.video_timeout)
+                tracker.videos(video_dir, evaluation, iteration, report["env_steps"])
+                print(f"Logged {args.video_envs} evaluation videos in {video_dir}", flush=True)
             if stop_requested:
                 break
     except BaseException:

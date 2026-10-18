@@ -5,6 +5,7 @@ import os
 import sys
 from pathlib import Path
 os.environ.setdefault("JAX_PLATFORMS", "cpu")
+os.environ.setdefault("IMAGEIO_FFMPEG_NO_PREVENT_SIGINT", "1")
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 os.environ.setdefault("MUJOCO_GL", "glfw" if "--viewer" in sys.argv else "egl")
 if "--viewer" in sys.argv:
