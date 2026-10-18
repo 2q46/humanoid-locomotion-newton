@@ -1,0 +1,13 @@
+.venv/
+.cache/
+assets/
+data/
+runs/
+__pycache__/
+*.pyc
+*.log
+*.egg-info/
+build/
+dist/
+*.exit
+*.pid

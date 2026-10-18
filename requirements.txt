@@ -1,0 +1,13 @@
+newton[sim]==1.7.0
+warp-lang==1.18.0
+trimesh>=4.6.8
+brax==0.14.2
+jax==0.10.2
+jaxlib==0.10.2
+flax==0.12.8
+optax==0.2.8
+mujoco==3.15.0
+mujoco-mjx==3.15.0
+scipy>=1.14
+imageio==2.37.2
+imageio-ffmpeg==0.6.0
