@@ -11,3 +11,4 @@ mujoco-mjx==3.15.0
 scipy>=1.14
 imageio==2.37.2
 imageio-ffmpeg==0.6.0
+wandb==0.31.0

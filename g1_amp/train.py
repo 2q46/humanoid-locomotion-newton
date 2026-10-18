@@ -24,6 +24,7 @@ from .amp import AMP, Replay
 from .env import EnvConfig, G1Env
 from .motion import MotionLibrary, JOINT_NAMES
 from .prepare import ROOT, MOTION_DIR
+from .tracking import RunTracker
 
 
 def make_networks(observation_size):
@@ -66,6 +67,11 @@ def main():
     parser.add_argument("--resume", type=Path)
     parser.add_argument("--checkpoint-every", type=int, default=50)
     parser.add_argument("--log-every", type=int, default=10)
+    parser.add_argument("--wandb-project", default="humanoid-locomotion-newton")
+    parser.add_argument("--wandb-entity")
+    parser.add_argument("--wandb-name")
+    parser.add_argument("--wandb-group")
+    parser.add_argument("--wandb-mode", choices=("online", "offline", "disabled"), default="online")
     args = parser.parse_args()
     if args.num_envs % args.minibatches or min(args.iterations, args.horizon, args.epochs,
             args.minibatches, args.disc_updates, args.disc_batch_size, args.checkpoint_every, args.log_every) < 1:
@@ -73,7 +79,7 @@ def main():
     if args.amp_weight < 0 or args.task_weight < 0 or args.learning_rate <= 0:
         parser.error("Reward weights must be nonnegative and learning rate positive")
     output = args.output or ROOT / "runs" / datetime.now().strftime("g1_amp_%Y%m%d_%H%M%S")
-    if (output / "config.json").exists() and not args.resume:
+    if any((output / name).exists() for name in ("checkpoint.msgpack", "metrics.jsonl")) and not args.resume:
         raise FileExistsError(f"Run already exists: {output}; choose another output or --resume")
     output.mkdir(parents=True, exist_ok=True)
     cfg = EnvConfig(num_envs=args.num_envs, device=args.device, seed=args.seed,
@@ -128,6 +134,7 @@ def main():
               "motions": [str(p) for p in motions.paths], "brax_version": __import__("brax").__version__,
               "learner_devices": [str(d) for d in jax.devices()]}
     (output / "config.json").write_text(json.dumps(config, indent=2) + "\n")
+    tracker = RunTracker(args, output, config)
     obs = env.observe()
     wall = time.monotonic()
     print(f"Newton {args.device}; JAX {jax.devices()}; {len(motions.pairs)} expert transitions; output={output}", flush=True)
@@ -137,7 +144,9 @@ def main():
         tmp = target.with_suffix(".tmp")
         tmp.write_bytes(flax.serialization.to_bytes(training_state(iteration)))
         tmp.replace(target)
-        (output / "checkpoint.json").write_text(json.dumps({"iteration": iteration, "env_steps": start_env_steps + (iteration - start) * args.horizon * args.num_envs}, indent=2) + "\n")
+        env_steps = start_env_steps + (iteration - start) * args.horizon * args.num_envs
+        (output / "checkpoint.json").write_text(json.dumps({"iteration": iteration, "env_steps": env_steps}, indent=2) + "\n")
+        tracker.checkpoint(target, iteration, env_steps)
 
     stop_requested = False
 
@@ -148,61 +157,70 @@ def main():
 
     signal.signal(signal.SIGINT, request_stop)
     signal.signal(signal.SIGTERM, request_stop)
-    for iteration in range(start + 1, start + args.iterations + 1):
-        records, amp_pairs, tasks, styles, episodes = [], [], [], [], []
-        for _ in range(args.horizon):
-            before = env.amp_features()
-            key, sample_key = jax.random.split(key)
-            action, policy_extra = sampler(params, jnp.asarray(obs), sample_key)
-            terminal_obs, task_reward, done, metrics = env.step(np.asarray(action))
-            pair = np.concatenate([before, env.amp_features()], axis=-1)
-            style_reward = amp.reward(pair)
-            reward = args.task_weight * task_reward + args.amp_weight * style_reward
-            extras = {"policy_extras": policy_extra,
-                      "state_extras": {"truncation": jnp.asarray(metrics["timeout"], jnp.float32)}}
-            records.append(types.Transition(observation=jnp.asarray(obs), action=action,
-                reward=jnp.asarray(reward), discount=jnp.asarray(~done, jnp.float32),
-                next_observation=jnp.asarray(terminal_obs), extras=extras))
-            tasks.append(task_reward); styles.append(style_reward); amp_pairs.append(pair)
-            if done.any():
-                episodes.extend(zip(metrics["episode_return"][done].tolist(), metrics["episode_length"][done].tolist()))
-            obs = env.reset(done) if done.any() else terminal_obs
-        # Keep each time sequence intact for Brax GAE. Shuffle environment sequences only.
-        batch = jax.tree_util.tree_map(lambda *xs: jnp.swapaxes(jnp.stack(xs), 0, 1), *records)
-        ppo_metrics = []
-        for _ in range(args.epochs):
-            permutation = rng.permutation(args.num_envs)
-            for ids in np.split(permutation, args.minibatches):
-                minibatch = jax.tree_util.tree_map(lambda x: x[ids], batch)
-                key, loss_key = jax.random.split(key)
-                params, opt_state, metric = update(params, opt_state, minibatch, loss_key)
-                ppo_metrics.append({k: float(v) for k, v in metric.items()})
-        pairs = np.concatenate(amp_pairs)
-        replay.add(pairs)
-        disc_metrics = []
-        for _ in range(args.disc_updates):
-            size = args.disc_batch_size
-            current = pairs[rng.integers(len(pairs), size=size // 2)]
-            fake = np.concatenate([current, replay.sample(rng, size - len(current))])
-            disc_metrics.append(amp.update(motions.sample_pairs(rng, size), fake))
-        report = {"iteration": iteration, "env_steps": iteration * args.horizon * args.num_envs,
-                  "task_reward": float(np.mean(tasks)), "style_reward": float(np.mean(styles)),
-                  "completed_episodes": len(episodes),
-                  "episode_task_return": float(np.mean([x[0] for x in episodes])) if episodes else None,
-                  "episode_length": float(np.mean([x[1] for x in episodes])) if episodes else None,
-                  "steps_per_second": (iteration - start) * args.horizon * args.num_envs / (time.monotonic() - wall),
-                  **{k: float(np.mean([m[k] for m in ppo_metrics])) for k in ppo_metrics[0]},
-                  **{k: float(np.mean([m[k] for m in disc_metrics])) for k in disc_metrics[0]}}
-        if not all(np.isfinite(v) for v in report.values() if isinstance(v, (float, int))):
-            raise FloatingPointError(f"Non-finite training metrics: {report}")
-        with (output / "metrics.jsonl").open("a") as log:
-            log.write(json.dumps(report) + "\n")
-        if iteration % args.log_every == 0 or iteration == start + 1:
-            print(json.dumps(report), flush=True)
-        if stop_requested or iteration % args.checkpoint_every == 0 or iteration == start + args.iterations:
-            save(iteration)
-        if stop_requested:
-            break
+    if hasattr(signal, "SIGUSR1"):
+        signal.signal(signal.SIGUSR1, request_stop)
+    try:
+        for iteration in range(start + 1, start + args.iterations + 1):
+            records, amp_pairs, tasks, styles, episodes = [], [], [], [], []
+            for _ in range(args.horizon):
+                before = env.amp_features()
+                key, sample_key = jax.random.split(key)
+                action, policy_extra = sampler(params, jnp.asarray(obs), sample_key)
+                terminal_obs, task_reward, done, metrics = env.step(np.asarray(action))
+                pair = np.concatenate([before, env.amp_features()], axis=-1)
+                style_reward = amp.reward(pair)
+                reward = args.task_weight * task_reward + args.amp_weight * style_reward
+                extras = {"policy_extras": policy_extra,
+                          "state_extras": {"truncation": jnp.asarray(metrics["timeout"], jnp.float32)}}
+                records.append(types.Transition(observation=jnp.asarray(obs), action=action,
+                    reward=jnp.asarray(reward), discount=jnp.asarray(~done, jnp.float32),
+                    next_observation=jnp.asarray(terminal_obs), extras=extras))
+                tasks.append(task_reward); styles.append(style_reward); amp_pairs.append(pair)
+                if done.any():
+                    episodes.extend(zip(metrics["episode_return"][done].tolist(), metrics["episode_length"][done].tolist()))
+                obs = env.reset(done) if done.any() else terminal_obs
+            # Keep each time sequence intact for Brax GAE. Shuffle environment sequences only.
+            batch = jax.tree_util.tree_map(lambda *xs: jnp.swapaxes(jnp.stack(xs), 0, 1), *records)
+            ppo_metrics = []
+            for _ in range(args.epochs):
+                permutation = rng.permutation(args.num_envs)
+                for ids in np.split(permutation, args.minibatches):
+                    minibatch = jax.tree_util.tree_map(lambda x: x[ids], batch)
+                    key, loss_key = jax.random.split(key)
+                    params, opt_state, metric = update(params, opt_state, minibatch, loss_key)
+                    ppo_metrics.append({k: float(v) for k, v in metric.items()})
+            pairs = np.concatenate(amp_pairs)
+            replay.add(pairs)
+            disc_metrics = []
+            for _ in range(args.disc_updates):
+                size = args.disc_batch_size
+                current = pairs[rng.integers(len(pairs), size=size // 2)]
+                fake = np.concatenate([current, replay.sample(rng, size - len(current))])
+                disc_metrics.append(amp.update(motions.sample_pairs(rng, size), fake))
+            report = {"iteration": iteration, "env_steps": start_env_steps + (iteration - start) * args.horizon * args.num_envs,
+                      "task_reward": float(np.mean(tasks)), "style_reward": float(np.mean(styles)),
+                      "completed_episodes": len(episodes),
+                      "episode_task_return": float(np.mean([x[0] for x in episodes])) if episodes else None,
+                      "episode_length": float(np.mean([x[1] for x in episodes])) if episodes else None,
+                      "steps_per_second": (iteration - start) * args.horizon * args.num_envs / (time.monotonic() - wall),
+                      **{k: float(np.mean([m[k] for m in ppo_metrics])) for k in ppo_metrics[0]},
+                      **{k: float(np.mean([m[k] for m in disc_metrics])) for k in disc_metrics[0]}}
+            if not all(np.isfinite(v) for v in report.values() if isinstance(v, (float, int))):
+                raise FloatingPointError(f"Non-finite training metrics: {report}")
+            with (output / "metrics.jsonl").open("a") as log:
+                log.write(json.dumps(report) + "\n")
+            if iteration % args.log_every == 0 or iteration in (start + 1, start + args.iterations) or stop_requested:
+                print(json.dumps(report), flush=True)
+                tracker.log(report)
+            if stop_requested or iteration % args.checkpoint_every == 0 or iteration == start + args.iterations:
+                save(iteration)
+            if stop_requested:
+                break
+    except BaseException:
+        tracker.finish(exit_code=1)
+        raise
+    else:
+        tracker.finish()
     print(f"Saved {output / 'checkpoint.msgpack'}", flush=True)
 
 

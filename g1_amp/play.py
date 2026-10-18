@@ -2,10 +2,13 @@
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 os.environ.setdefault("JAX_PLATFORMS", "cpu")
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
-os.environ.setdefault("MUJOCO_GL", "egl")
+os.environ.setdefault("MUJOCO_GL", "glfw" if "--viewer" in sys.argv else "egl")
+if "--viewer" in sys.argv:
+    os.environ.setdefault("PYOPENGL_PLATFORM", "glx")
 import flax.serialization
 import jax
 import jax.numpy as jnp

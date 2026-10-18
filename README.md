@@ -45,6 +45,8 @@ The dataset card identifies LAFAN1 motion content as CC BY-NC-ND 4.0 and notes t
 
 At 64 environments and a 24-step horizon, 10,000 iterations collect 15.36 million transitions. This is a starting recipe; gait quality requires evaluation and tuning. Short runs verify the pipeline and do not establish stable walking.
 
+W&B online logging is enabled by default. Authenticate once with wandb login (or set WANDB_API_KEY securely) before training. Use --wandb-project, --wandb-entity, --wandb-name, and --wandb-group to organize runs. Metrics use environment transitions as the chart axis. Checkpoints and configuration are uploaded as versioned model artifacts. The local wandb_run.json preserves the run ID on resume. For isolated tests use --wandb-mode offline; disabled is available for debugging.
+
 Training saves config.json, per-update metrics.jsonl, and an atomic checkpoint.msgpack containing both networks, both optimizers, discriminator feature statistics, learner RNG, and iteration. Ctrl-C or SIGTERM finishes the current update and saves a checkpoint.
 
 ```bash
@@ -84,3 +86,5 @@ Implementation: env.py is the Newton task, motion.py handles references, amp.py 
 ## Hardware
 
 The trainer currently uses one simulation GPU per process. A 10 × RTX 2080 Ti cluster is best used for independent seeds or parameter sweeps; it does not automatically distribute one policy across the cards. Benchmark contact-enabled rollouts before extrapolating training time. The default Warp 1.18 wheel requires a Turing-or-newer GPU and R580+ driver; CUDA 12 wheels are available upstream for older driver environments.
+
+Atlantis access, validated GPU resources, W&B setup, and Slurm launch scripts are documented in [cluster/README.md](cluster/README.md).

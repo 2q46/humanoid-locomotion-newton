@@ -11,3 +11,5 @@ build/
 dist/
 *.exit
 *.pid
+wandb/
+imgui.ini
