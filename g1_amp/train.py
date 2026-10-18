@@ -207,6 +207,7 @@ def main():
                 fake = np.concatenate([current, replay.sample(rng, size - len(current))])
                 disc_metrics.append(amp.update(motions.sample_pairs(rng, size), fake))
             report = {"iteration": iteration, "env_steps": start_env_steps + (iteration - start) * args.horizon * args.num_envs,
+                      "parallel_envs": args.num_envs,
                       "task_reward": float(np.mean(tasks)), "style_reward": float(np.mean(styles)),
                       "completed_episodes": len(episodes),
                       "episode_task_return": float(np.mean([x[0] for x in episodes])) if episodes else None,
