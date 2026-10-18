@@ -14,6 +14,7 @@ set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:?Submit from the repository root}"
 export G1_AMP_WORKDIR="${G1_AMP_WORKDIR:-$SLURM_SUBMIT_DIR}"
 export JAX_PLATFORMS=cpu
+export PYTHONUNBUFFERED=1
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
 python_bin="${G1_AMP_PYTHON:-$SLURM_SUBMIT_DIR/.venv/bin/python}"
